@@ -20,10 +20,8 @@ import java.util.stream.Collectors;
 
 import org.bytewright.webscraper.scrapper.DataExtractor;
 import org.bytewright.webscraper.scrapper.ScrapingResult;
-import org.bytewright.webscraper.util.WebClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -97,12 +95,12 @@ public class ThingiverseDataExtractor implements DataExtractor {
       try {
         Path path = Paths.get("data/output", result.getThingiverseId());
         Path outDir = Files.createDirectories(path);
-        Path infoPath = outDir.resolve("info.csv");
+        Path infoPath = outDir.resolve("info.json");
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.writeValue(infoPath.toFile(), result);
-        Files.write(infoPath, result.getInfoCsvLines());
+        Files.write(outDir.resolve("info.csv"), result.getInfoCsvLines());
         for (String image : result.getImages()) {
-          LOGGER.info("downloading url: {}", image);
+          LOGGER.info("downloading img urls: {}", image);
         }
         downloadArchive(result, outDir);
       } catch (IOException e) {

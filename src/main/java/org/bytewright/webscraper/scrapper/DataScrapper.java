@@ -42,7 +42,13 @@ public class DataScrapper {
       try (WebClient client = webClientFactory.createClient()) {
         HtmlPage page = client.getPage(url);
         Optional<ScrapingResult> result = dataExtractor.extractResult(page);
-        result.ifPresent(scrapingResult -> resultList.put(url, scrapingResult));
+        if (result.isEmpty()) {
+          LOGGER.warn("Failed to parse result from {}", url);
+        } else {
+          ScrapingResult scrapingResult = result.get();
+          LOGGER.debug("Got result from url {}: {}", url, scrapingResult);
+          resultList.put(url, scrapingResult);
+        }
         counter++;
         if (counter > 5)
           break;
