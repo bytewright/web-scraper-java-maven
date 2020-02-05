@@ -2,6 +2,9 @@ package org.bytewright.webscraper.scrapper;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Optional;
 
 import org.bytewright.webscraper.data.UrlDataSource;
 import org.bytewright.webscraper.util.WebClientFactory;
@@ -24,16 +27,23 @@ public class DataScrapper {
   private UrlDataSource urlDataSource;
   @Autowired
   private WebClientFactory webClientFactory;
+  @Autowired
+  private DataExtractor dataExtractor;
 
   public void scrape() {
+    List<ScrapingResult> resultList = new LinkedList<>();
     for (URL url : urlDataSource.getUrls()) {
       LOGGER.info("trying to scrape url: {}", url);
       try (WebClient client = webClientFactory.createClient()) {
         HtmlPage page = client.getPage(url);
-        LOGGER.info("Got page: {}", page);
+        Optional<ScrapingResult> result = dataExtractor.extractResult(page);
+        result.ifPresent(resultList::add);
+        break;
       } catch (IOException e) {
         e.printStackTrace();
       }
     }
+    LOGGER.info("Scrapping finished, got {} ScrapingResult(s)", resultList.size());
+    dataExtractor.persistResult(resultList);
   }
 }
