@@ -1,18 +1,32 @@
 package org.bytewright.webscraper.scrapper.sites;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.bytewright.webscraper.scrapper.DataExtractor;
-import org.bytewright.webscraper.scrapper.ScraperSettings;
 import org.bytewright.webscraper.scrapper.ScrapingResult;
+import org.bytewright.webscraper.util.WebClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gargoylesoftware.htmlunit.html.DomElement;
 import com.gargoylesoftware.htmlunit.html.DomNode;
 import com.gargoylesoftware.htmlunit.html.HtmlAnchor;
@@ -22,22 +36,40 @@ import com.gargoylesoftware.htmlunit.html.HtmlPage;
 @Component
 public class ThingiverseDataExtractor implements DataExtractor {
   private static final Logger LOGGER = LoggerFactory.getLogger(ThingiverseDataExtractor.class);
-
-  @Autowired
-  private ScraperSettings scraperSettings;
+  private static final String regex = "https://www\\.thingiverse\\.com/thing:([0-9]+)";
+  private static final Pattern pattern = Pattern.compile(regex);
 
   @Override
   public Optional<ScrapingResult> extractResult(HtmlPage page) {
-    LOGGER.debug("Scraping page: {}", page.getUrl());
     DomElement descriptionElem = page.getElementById("description");
     String description = descriptionElem.asText();
-    LOGGER.debug("Found desc: {}", description);
     List<String> tags = parseTags(page.getAnchors());
-    LOGGER.debug("Found Tags: {}", tags);
     List<String> imgs = parseGallery(page);
-    LOGGER.debug("Found imgs: {}", imgs);
-    LOGGER.debug("found anchors: {}", page.getAnchors());
-    return Optional.empty();
+    String thingId = parseThingId(page);
+    String zipDownloadUrl = parseZipUrl(thingId);
+    return createResult(thingId, description, tags, imgs, zipDownloadUrl);
+  }
+
+  private Optional<ScrapingResult> createResult(String thingId, String description, List<String> tags,
+      List<String> imgs, String zipDownloadUrl) {
+    ThingiverseScrapingResult result = new ThingiverseScrapingResult(thingId, description, tags, imgs, zipDownloadUrl);
+    return result.isValid() ? Optional.of(result) : Optional.empty();
+  }
+
+  private String parseZipUrl(String thingId) {
+    return "https://www.thingiverse.com/thing:" + thingId + "/zip";
+  }
+
+  private String parseThingId(HtmlPage page) {
+    return parseThingId(page.getUrl());
+  }
+
+  private String parseThingId(URL url) {
+    Matcher matcher = pattern.matcher(url.toString());
+    if (!matcher.matches()) {
+      throw new IllegalArgumentException("not thingiverse url: " + url.toString());
+    }
+    return matcher.group(1);
   }
 
   private List<String> parseGallery(HtmlPage htmlPage) {
@@ -54,17 +86,65 @@ public class ThingiverseDataExtractor implements DataExtractor {
   }
 
   @Override
-  public void persistResult(List<ScrapingResult> resultList) {
+  public void persistResult(Collection<ScrapingResult> resultList) {
     List<ThingiverseScrapingResult> scrapingResultList = resultList.stream()
         .filter(scrapingResult -> scrapingResult instanceof ThingiverseScrapingResult)
         .map(scrapingResult -> (ThingiverseScrapingResult) scrapingResult)
         .sorted(Comparator.comparing(ThingiverseScrapingResult::getThingiverseId))
         .collect(Collectors.toList());
-    scrapingResultList.forEach(this::log);
+
+    for (ThingiverseScrapingResult result : scrapingResultList) {
+      try {
+        Path path = Paths.get("data/output", result.getThingiverseId());
+        Path outDir = Files.createDirectories(path);
+        Path infoPath = outDir.resolve("info.csv");
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.writeValue(infoPath.toFile(), result);
+        Files.write(infoPath, result.getInfoCsvLines());
+        for (String image : result.getImages()) {
+          LOGGER.info("downloading url: {}", image);
+        }
+        downloadArchive(result, outDir);
+      } catch (IOException e) {
+        LOGGER.error("Failed to scrape id {}", result.getThingiverseId());
+        e.printStackTrace();
+      }
+    }
 
   }
 
-  private void log(ThingiverseScrapingResult thingiverseScrapingResult) {
-    LOGGER.info("Scraped id {}: {}", thingiverseScrapingResult.getThingiverseId(), thingiverseScrapingResult);
+  @Override
+  public boolean isAlreadyDownloaded(URL url) {
+    String thingId = parseThingId(url);
+    return Files.isDirectory(Paths.get("data/output", thingId));
   }
+
+  @Override
+  public boolean isValidUrl(URL url) {
+    return pattern.matcher(url.toString()).matches();
+  }
+
+  private void downloadArchive(ThingiverseScrapingResult result, Path outDir) throws IOException {
+    File file = outDir.resolve("archive.zip").toFile();
+    LOGGER.info("Downloading zip from: {} to {}", result.getZipPath(), file.getAbsoluteFile());
+    URL url = new URL(result.getZipPath());
+    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+    connection.setRequestMethod("GET");
+    try (InputStream in = connection.getInputStream()) {
+      try (FileOutputStream out = new FileOutputStream(file)) {
+        copy(in, out, 2048);
+      }
+    }
+  }
+
+  public static void copy(InputStream input, OutputStream output, int bufferSize) throws IOException {
+    byte[] buf = new byte[bufferSize];
+    int n = input.read(buf);
+    while (n >= 0) {
+      output.write(buf, 0, n);
+      n = input.read(buf);
+    }
+    output.flush();
+  }
+
 }

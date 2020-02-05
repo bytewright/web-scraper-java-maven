@@ -2,8 +2,8 @@ package org.bytewright.webscraper.scrapper;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.bytewright.webscraper.data.UrlDataSource;
@@ -29,21 +29,30 @@ public class DataScrapper {
   private WebClientFactory webClientFactory;
   @Autowired
   private DataExtractor dataExtractor;
+  int counter = 0;
 
   public void scrape() {
-    List<ScrapingResult> resultList = new LinkedList<>();
-    for (URL url : urlDataSource.getUrls()) {
-      LOGGER.info("trying to scrape url: {}", url);
+    Map<URL, ScrapingResult> resultList = new LinkedHashMap<>();
+    for (URL url : urlDataSource.getUrls((url -> dataExtractor.isValidUrl(url)))) {
+      if (dataExtractor.isAlreadyDownloaded(url) || resultList.containsKey(url)) {
+        continue;
+      }
+
+      LOGGER.info("Trying to scrape url: {}", url);
       try (WebClient client = webClientFactory.createClient()) {
         HtmlPage page = client.getPage(url);
         Optional<ScrapingResult> result = dataExtractor.extractResult(page);
-        result.ifPresent(resultList::add);
-        break;
+        result.ifPresent(scrapingResult -> resultList.put(url, scrapingResult));
+        counter++;
+        if (counter > 5)
+          break;
       } catch (IOException e) {
-        e.printStackTrace();
+        LOGGER.error("Failed to scrape url {}", url, e);
+      } catch (Exception e) {
+        LOGGER.error("Something went wrong while scraping url {}", url, e);
       }
     }
     LOGGER.info("Scrapping finished, got {} ScrapingResult(s)", resultList.size());
-    dataExtractor.persistResult(resultList);
+    dataExtractor.persistResult(resultList.values());
   }
 }

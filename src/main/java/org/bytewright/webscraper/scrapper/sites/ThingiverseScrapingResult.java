@@ -1,10 +1,14 @@
 package org.bytewright.webscraper.scrapper.sites;
 
+import java.util.LinkedList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.bytewright.webscraper.scrapper.ScrapingResult;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Streams;
 
 public class ThingiverseScrapingResult implements ScrapingResult {
   private final String thingiverseId;
@@ -59,5 +63,17 @@ public class ThingiverseScrapingResult implements ScrapingResult {
         .add("zipPath", zipPath)
         .add("summary", summary)
         .toString();
+  }
+
+  public Iterable<? extends CharSequence> getInfoCsvLines() {
+    LinkedList<String> lines = new LinkedList<>();
+    lines.add("id;tags;summay");
+    String dataLine = Streams.concat(
+        Stream.of(thingiverseId),
+        tags.stream(),
+        Stream.of(summary))
+        .collect(Collectors.joining(";"));
+    lines.add(dataLine);
+    return lines;
   }
 }

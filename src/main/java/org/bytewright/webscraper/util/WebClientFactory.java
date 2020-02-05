@@ -12,4 +12,12 @@ public class WebClientFactory {
     client.getOptions().setJavaScriptEnabled(false);
     return client;
   }
+
+  public WebClient createZipDownloader() {
+    WebClient client = new WebClient();
+    client.getOptions().setCssEnabled(false);
+    client.getOptions().setJavaScriptEnabled(false);
+    client.getOptions().setTimeout(60 * 1000);
+    return client;
+  }
 }
